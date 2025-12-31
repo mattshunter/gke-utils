@@ -178,6 +178,7 @@ list_projects() {
     fi
     
     # Display numbered list
+    echo -e "\n${BOLD}${BLUE}Project Selections\n⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺${NC}"
     PROJECT_LIST=()
     while IFS= read -r proj; do
         PROJECT_LIST+=("$proj")
@@ -233,6 +234,7 @@ list_clusters() {
         CLUSTER_LIST+=("$cluster")
     done < "$list_cache"
     
+    echo -e "\n${BOLD}${BLUE}Cluster Selections\n⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺${NC}"
     local i=1
     for cluster in "${CLUSTER_LIST[@]}"; do
         echo -e "${CYAN}[$i]${NC} $cluster"
@@ -425,14 +427,14 @@ interactive_mode() {
     
     # Step 3: Explore resources
     while true; do
-        echo -e "${BOLD}${CYAN}What would you like to explore?${NC}"
-        echo "  1) Namespaces"
-        echo "  2) Services (all namespaces)"
-        echo "  3) Services (specific namespace)"
-        echo "  4) Pods (all namespaces)"
-        echo "  5) Pods (specific namespace)"
-        echo "  6) Generate command template"
-        echo "  q) Quit"
+        echo -e "${BOLD}${BLUE}Exploration Selections\n⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺${NC}"
+        echo "[1] Namespaces"
+        echo "[2] Services (all namespaces)"
+        echo "[3] Services (specific namespace)"
+        echo "[4] Pods (all namespaces)"
+        echo "[5] Pods (specific namespace)"
+        echo "[6] Generate command template"
+        echo "[q] Quit"
         echo ""
         read -p "Select option: " option
         echo ""
