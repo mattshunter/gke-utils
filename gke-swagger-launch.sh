@@ -218,12 +218,69 @@ check_port() {
     fi
 }
 
+# Function to check if service endpoint is ready
+check_service_endpoint() {
+    echo -e "${YELLOW}Checking if service has ready endpoints...${NC}"
+    
+    local max_attempts=30
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        local endpoints=$(kubectl get endpoints "$SERVICE" -n "$NAMESPACE" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
+        
+        if [[ -n "$endpoints" ]]; then
+            echo -e "${GREEN}Service has ready endpoints${NC}"
+            return 0
+        fi
+        
+        echo -e "${YELLOW}Waiting for service endpoints to be ready (attempt $attempt/$max_attempts)...${NC}"
+        sleep 2
+        ((attempt++))
+    done
+    
+    echo -e "${RED}Warning: Service endpoints not ready after $max_attempts attempts${NC}"
+    echo -e "${YELLOW}Proceeding anyway, but connection may fail...${NC}"
+    return 1
+}
+
+# Function to validate port forwarding connection
+validate_port_forward() {
+    echo -e "${YELLOW}Validating port forwarding connection...${NC}"
+    
+    local max_attempts=10
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        if nc -z localhost $LOCAL_PORT 2>/dev/null; then
+            echo -e "${GREEN}Port forwarding connection validated${NC}"
+            return 0
+        fi
+        
+        # Check if port-forward process is still running
+        if ! kill -0 $PORT_FORWARD_PID 2>/dev/null; then
+            echo -e "${RED}Port forwarding process died unexpectedly${NC}"
+            return 1
+        fi
+        
+        echo -e "${YELLOW}Waiting for connection (attempt $attempt/$max_attempts)...${NC}"
+        sleep 2
+        ((attempt++))
+    done
+    
+    echo -e "${RED}Warning: Could not validate port forwarding connection${NC}"
+    echo -e "${YELLOW}The service may not be responding on port $REMOTE_PORT${NC}"
+    return 1
+}
+
 # Function to start port forwarding
 start_port_forward() {
     echo -e "${YELLOW}Setting up port forwarding...${NC}"
     echo -e "Service: ${GREEN}$SERVICE${NC}"
     echo -e "Namespace: ${GREEN}$NAMESPACE${NC}"
     echo -e "Port mapping: ${GREEN}$LOCAL_PORT:$REMOTE_PORT${NC}"
+    
+    # Check service endpoints before attempting port forward
+    check_service_endpoint
     
     # Start port forwarding in background
     kubectl port-forward "$SERVICE" -n "$NAMESPACE" "$LOCAL_PORT:$REMOTE_PORT" --insecure-skip-tls-verify &
@@ -236,7 +293,22 @@ start_port_forward() {
     # Check if port forwarding is still running
     if ! kill -0 $PORT_FORWARD_PID 2>/dev/null; then
         echo -e "${RED}Port forwarding failed to start${NC}"
+        echo -e "${YELLOW}This may be because:${NC}"
+        echo -e "  - The service doesn't exist in namespace $NAMESPACE"
+        echo -e "  - The service has no ready endpoints"
+        echo -e "  - Port $REMOTE_PORT is not exposed by the service"
         exit 1
+    fi
+    
+    # Validate the connection
+    if ! validate_port_forward; then
+        echo -e "${YELLOW}Port forwarding established but connection could not be validated${NC}"
+        echo -e "${YELLOW}The browser will open, but you may see connection errors${NC}"
+        read -p "Continue anyway? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
     fi
     
     echo -e "${GREEN}Port forwarding established (PID: $PORT_FORWARD_PID)${NC}"
