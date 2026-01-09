@@ -14,6 +14,7 @@ A collection of scripts for managing and diagnosing Google Kubernetes Engine (GK
   - [gke-diagnose-shutdown.sh](#gke-diagnose-shutdownsh)
   - [gke-diagnose-evictions.sh](#gke-diagnose-evictionssh)
   - [gke-diagnose-storage.sh](#gke-diagnose-storagesh)
+  - [gke-diagnose-elastic.sh](#gke-diagnose-elasticsh)
   - [gke-cert-check.sh](#gke-cert-checksh)
   - [gke-swagger-launch.sh](#gke-swagger-launchsh)
 - [Installation](#installation)
@@ -163,6 +164,7 @@ Before using these scripts, ensure you have the required tools installed. See [R
   - `gke-diagnose-evictions.sh`
   - `gke-diagnose-shutdown.sh`
   - `gke-diagnose-storage.sh`
+  - `gke-diagnose-elastic.sh`
   - `kubectl` commands
 - **Smart Caching:** 1-hour cache for projects and clusters (improve performance)
 - **TLS Auto-Detection:** Automatically detects and includes `--insecure-skip-tls-verify` when needed
@@ -441,6 +443,114 @@ When high restart counts are detected, this script automatically suggests runnin
 - Investigating pod evictions due to disk pressure
 - Planning storage capacity upgrades
 - Monitoring stateful application storage health
+
+---
+
+### gke-diagnose-elastic.sh
+
+**Purpose:** Comprehensive diagnostics for Elasticsearch clusters running in GKE.
+
+**Description:** Performs detailed health checks and diagnostics specifically for Elasticsearch deployments in GKE. 
+Analyzes cluster health, node status, shard allocation, index health, disk usage, and recent error logs. Includes 
+secure credential management with encrypted caching to avoid exposing passwords on the command line. Provides 
+actionable recommendations based on findings.
+
+**Parameters:**
+
+| Parameter      | Short | Required | Description                                                     |
+|----------------|-------|----------|-----------------------------------------------------------------|
+| `--project`    | `-p`  | Yes      | GCP project ID                                                  |
+| `--cluster`    | `-c`  | Yes      | GKE cluster name                                                |
+| `--zone`       | `-z`  | Yes*     | Cluster zone (for zonal clusters)                               |
+| `--region`     | `-r`  | Yes*     | Cluster region (for regional clusters)                          |
+| `--namespace`  | `-n`  | Yes      | Kubernetes namespace containing Elasticsearch                   |
+| `--pod`        | `-d`  | No       | Specific Elasticsearch pod name (default: first master pod)     |
+| `--secret`     | `-s`  | No       | Kubernetes secret containing Elasticsearch credentials          |
+| `--verbose`    | `-v`  | No       | Verbose output (includes full log lines with all fields)        |
+| `--quiet`      | `-q`  | No       | Quiet mode (minimal output)                                     |
+| `--auto-login` | `-l`  | No       | Auto-login to gcloud if not authenticated                       |
+| `--help`       | `-h`  | No       | Show help message                                               |
+
+*Either zone or region must be specified, but not both.
+
+**Examples:**
+
+```bash
+# Basic diagnostics for Elasticsearch cluster
+./gke-diagnose-elastic.sh -p my-project -c my-cluster -z us-east4-a -n elastic
+
+# Use regional cluster
+./gke-diagnose-elastic.sh --project my-project --cluster my-cluster --region us-east4 --namespace elastic
+
+# Diagnose specific pod
+./gke-diagnose-elastic.sh -p my-project -c my-cluster -z us-east4-a -n elastic -d elasticsearch-master-0
+
+# Use specific Kubernetes secret for credentials
+./gke-diagnose-elastic.sh -p my-project -c my-cluster -z us-east4-a -n elastic --secret elasticsearch-master-credentials
+
+# Verbose mode with full log details
+./gke-diagnose-elastic.sh -p my-project -c my-cluster -z us-east4-a -n elastic -v
+```
+
+**What It Checks:**
+
+1. **Pod Status** - Verifies all Elasticsearch pods are running and ready
+2. **Cluster Health** - Queries Elasticsearch `/_cluster/health` API (green/yellow/red status)
+3. **Node Information** - Displays heap usage, disk usage, CPU, and memory for each node
+4. **Shard Allocation** - Identifies unassigned shards and provides allocation explanations
+5. **Indices** - Lists top 10 indices by size with health status
+6. **Cluster Settings** - Shows disk watermark thresholds (low/high/flood stage)
+7. **Error Logs** - Parses recent pod logs for errors, showing timestamp and message by default
+8. **Summary** - Provides overall health assessment and actionable recommendations
+
+**Credential Management:**
+
+The script implements secure credential handling:
+
+- **No passwords on command line** - Credentials are never passed as CLI arguments
+- **Interactive prompts** - Securely prompts for username/password with masked input
+- **Encrypted caching** - Stores credentials encrypted using AES-256-CBC in `~/.cache/gke-elastic/`
+- **30-day expiry** - Cached credentials automatically expire after 30 days
+- **Machine-specific encryption** - Uses hostname and UID for encryption key derivation
+- **Automatic discovery** - Attempts to find credentials from common Kubernetes secrets
+
+The script will try the following credential sources in order:
+1. Cached credentials (if valid)
+2. Specified secret (`--secret` flag)
+3. Common secret names (`elasticsearch-master-credentials`, `elastic-credentials`)
+4. Interactive prompt (with caching for future use)
+
+**Critical Warnings:**
+
+- **🔴 Red Status:** Cluster in red state (primary shards unassigned)
+- **⚠️ Yellow Status:** Cluster degraded (replica shards unassigned)
+- **⚠️ High Disk Usage:** Nodes with ≥80% disk usage (Elasticsearch default watermark is 85%)
+- **⚠️ High Heap Usage:** Nodes with ≥90% heap utilization
+
+**Log Parsing:**
+
+By default, the script shows only timestamp and message from error logs for cleaner output:
+```
+[2026-01-08T05:17:59.204Z] failed to retrieve database [GeoLite2-ASN.mmdb]
+```
+
+With `--verbose`, you'll see complete log entries with all JSON fields including stack traces.
+
+**Use Cases:**
+
+- Diagnosing cluster status issues (yellow/red health)
+- Investigating shard allocation failures
+- Monitoring disk space before hitting Elasticsearch watermarks
+- Troubleshooting pod startup problems
+- Analyzing recent errors in Elasticsearch logs
+- Planning index lifecycle management
+
+**Common Findings:**
+
+- **Disk Space Issues:** Elasticsearch has strict watermarks (85% low, 90% high, 95% flood stage)
+- **Unassigned Shards:** Often caused by disk space, replica count mismatches, or node failures
+- **GeoIP Database Errors:** Common during cluster initialization, usually resolve automatically
+- **Heap Pressure:** Indicates need to adjust JVM settings or add nodes
 
 ---
 
