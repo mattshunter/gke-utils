@@ -48,11 +48,16 @@ These scripts complement rather than replace other publicly available tools. Use
 ```mermaid
 flowchart TD
     Start([Start Troubleshooting])
-    Start --> Choice{What's the issue?}
+    Start --> Discover{Know cluster<br/>details?}
+    
+    Discover -->|No| GkeDiscover[gke-discover.sh<br/>Explore projects/clusters]
+    Discover -->|Yes| Choice{What's the issue?}
+    GkeDiscover --> Choice
     
     Choice -->|Need to monitor logs| ViewLogs[gke-view-logs.sh]
     Choice -->|Pods restarting| RestartStatus[gke-restart-status.sh]
     Choice -->|Storage/disk issues| Storage[gke-diagnose-storage.sh]
+    Choice -->|Elasticsearch issues| Elastic[gke-diagnose-elastic.sh]
     
     ViewLogs -->|Observe patterns| RestartStatus
     
@@ -63,11 +68,16 @@ flowchart TD
     Decision -->|Evicted pods<br/>Resource pressure| Evictions[gke-diagnose-evictions.sh]
     Decision -->|OOMKilled/Crash<br/>Unclear cause| Storage
     
+    Elastic -->|Check cluster health| ElasticDecision{Status?}
+    ElasticDecision -->|Yellow/Red<br/>Disk issues| Storage
+    ElasticDecision -->|Shard problems| Fix5[Adjust replica count<br/>or resolve disk space]
+    
     Probes -->|Review probe config| Fix1[Fix probe configuration]
     Shutdown -->|Check grace periods| Fix2[Adjust shutdown handling]
     Evictions -->|Check resources| Fix3[Adjust resource limits/requests]
     Evictions -->|Disk pressure?| Storage
     Storage -->|Check disk usage| Fix4[Free disk space<br/>or expand storage]
+    Fix5 --> Storage
     
     Fix1 --> Verify[Verify fixes with<br/>gke-view-logs.sh]
     Fix2 --> Verify
@@ -79,12 +89,14 @@ flowchart TD
     
     style Start fill:#e1f5e1
     style End fill:#e1f5e1
+    style GkeDiscover fill:#fff9c4
     style ViewLogs fill:#e3f2fd
     style RestartStatus fill:#fff3e0
     style Probes fill:#fce4ec
     style Shutdown fill:#fce4ec
     style Evictions fill:#fce4ec
     style Storage fill:#fce4ec
+    style Elastic fill:#fce4ec
 ```
 
 ## Prerequisites
@@ -794,12 +806,27 @@ While these scripts provide focused GKE diagnostics, you might also consider the
 - **k9s** - Interactive terminal UI for managing Kubernetes clusters with resource browsing and shell access
 - **Lens** - Desktop application providing a complete Kubernetes IDE experience
 - **kubectl plugins** - Extend kubectl with custom commands (krew plugin manager)
+- **kubectx/kubens** - Fast context and namespace switching for kubectl
 
 **Diagnostics and Health:**
 
 - **Popeye** - Kubernetes cluster sanitizer that scans for issues and best practice violations
 - **kubectl-debug** - Debug running pods with ephemeral containers
 - **kube-capacity** - Overview of resource requests, limits, and utilization
+
+**Storage and Disk Analysis:**
+
+- **kubectl df-pv** - Show disk usage of PersistentVolumes (krew plugin)
+- **kubectl-view-allocations** - Display resource allocations per namespace
+- **goldpinger** - Kubernetes network monitoring tool that can help identify node issues affecting storage
+
+**Elasticsearch Management:**
+
+- **Cerebro** - Web admin tool for Elasticsearch with cluster health visualization and index management
+- **ElasticHQ** - Elasticsearch management and monitoring application
+- **Elasticvue** - Elasticsearch GUI for browser-based cluster management
+- **elasticsearch-head** - Web front-end for Elasticsearch cluster monitoring
+- **Elastic's Support Diagnostics** - Official Elasticsearch diagnostic and support utility
 
 **Certificate Management:**
 
