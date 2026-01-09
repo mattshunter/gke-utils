@@ -7,11 +7,13 @@ A collection of scripts for managing and diagnosing Google Kubernetes Engine (GK
 - [About](#about)
 - [Prerequisites](#prerequisites)
 - [Scripts](#scripts)
+  - [gke-discover.sh](#gke-discoversh)
   - [gke-view-logs.sh](#gke-view-logssh)
   - [gke-restart-status.sh](#gke-restart-statussh)
   - [gke-diagnose-probes.sh](#gke-diagnose-probessh)
   - [gke-diagnose-shutdown.sh](#gke-diagnose-shutdownsh)
   - [gke-diagnose-evictions.sh](#gke-diagnose-evictionssh)
+  - [gke-diagnose-storage.sh](#gke-diagnose-storagesh)
   - [gke-cert-check.sh](#gke-cert-checksh)
   - [gke-swagger-launch.sh](#gke-swagger-launchsh)
 - [Installation](#installation)
@@ -22,18 +24,23 @@ A collection of scripts for managing and diagnosing Google Kubernetes Engine (GK
 
 ### Purpose and Philosophy
 
-This suite of Google Kubernetes Engine (GKE) diagnostic scripts was created to provide lightweight, focused tools for troubleshooting common Kubernetes issues in GKE clusters. The scripts emphasize:
+This suite of Google Kubernetes Engine (GKE) diagnostic scripts was created to provide lightweight, focused tools for
+ troubleshooting common Kubernetes issues in GKE clusters. The scripts emphasize:
 
 - **Simplicity**: Easy to understand and modify
-- **Reduced barriers to entry**: Publicly available, minimal dependencies, 
+- **Reduced barriers to entry**: Publicly available, minimal dependencies,
 - **Educational value**: Clear output that helps you understand what's happening in your cluster
 - **GKE-specific optimizations**: Tailored for GKE's architecture and features
 - **Integration**: Scripts work together, cross-referencing each other to guide troubleshooting workflows
 - **Portability**: Pure bash scripts that work anywhere gcloud and kubectl are available
 
-Each script targets a specific diagnostic area (pod restarts, probe failures, evictions, etc.) and can be used standalone or as part of an integrated troubleshooting workflow. The scripts are designed to be read and understood, serving as both operational tools and learning resources.
+Each script targets a specific diagnostic area (pod restarts, probe failures, evictions, etc.) and can be used
+ standalone or as part of an integrated troubleshooting workflow. The scripts are designed to be read and understood,
+ serving as both operational tools and learning resources.
 
-These scripts complement rather than replace other publicly available tools. Use them when you need quick, focused diagnostics without installing additional software, or when you want to understand the underlying kubectl commands being executed.
+These scripts complement rather than replace other publicly available tools. Use them when you need quick, focused
+ diagnostics without installing additional software, or when you want to understand the underlying kubectl commands
+ being executed.
 
 ### Diagnostic Workflow
 
@@ -44,6 +51,7 @@ flowchart TD
     
     Choice -->|Need to monitor logs| ViewLogs[gke-view-logs.sh]
     Choice -->|Pods restarting| RestartStatus[gke-restart-status.sh]
+    Choice -->|Storage/disk issues| Storage[gke-diagnose-storage.sh]
     
     ViewLogs -->|Observe patterns| RestartStatus
     
@@ -52,14 +60,18 @@ flowchart TD
     Decision -->|Probe failures<br/>Liveness/Readiness| Probes[gke-diagnose-probes.sh]
     Decision -->|Exit 143/137<br/>SIGTERM/SIGKILL| Shutdown[gke-diagnose-shutdown.sh]
     Decision -->|Evicted pods<br/>Resource pressure| Evictions[gke-diagnose-evictions.sh]
+    Decision -->|OOMKilled/Crash<br/>Unclear cause| Storage
     
     Probes -->|Review probe config| Fix1[Fix probe configuration]
     Shutdown -->|Check grace periods| Fix2[Adjust shutdown handling]
     Evictions -->|Check resources| Fix3[Adjust resource limits/requests]
+    Evictions -->|Disk pressure?| Storage
+    Storage -->|Check disk usage| Fix4[Free disk space<br/>or expand storage]
     
     Fix1 --> Verify[Verify fixes with<br/>gke-view-logs.sh]
     Fix2 --> Verify
     Fix3 --> Verify
+    Fix4 --> Verify
     
     Verify -->|Issues persist| RestartStatus
     Verify -->|Resolved| End([Issue Resolved])
@@ -71,13 +83,13 @@ flowchart TD
     style Probes fill:#fce4ec
     style Shutdown fill:#fce4ec
     style Evictions fill:#fce4ec
+    style Storage fill:#fce4ec
 ```
-
-
 
 ## Prerequisites
 
-Before using these scripts, ensure you have the required tools installed. See [REQUIREMENTS.md](REQUIREMENTS.md) for detailed installation instructions.
+Before using these scripts, ensure you have the required tools installed. See [REQUIREMENTS.md](REQUIREMENTS.md) for detailed
+ installation instructions.
 
 **Core Requirements:**
 
@@ -95,29 +107,104 @@ Before using these scripts, ensure you have the required tools installed. See [R
 
 ## Scripts
 
-### gke-view-logs.sh
+### gke-discover.sh
 
-**Purpose:** Create a tmux split-pane view of pod logs using xpanes for simultaneous monitoring of multiple pods.
+**Purpose:** Interactive resource discovery and command template generation for GKE clusters.
 
-**Description:** Uses xpanes to create a split-pane terminal view showing logs from all pods in a namespace. Each pod (or container) gets its own pane for easy parallel monitoring.
+**Description:** A comprehensive discovery tool that helps you explore GCP projects, GKE clusters, namespaces, and
+ Kubernetes resources with numbered selection menus. Generates ready-to-use command templates for all other GKE utility
+  scripts and kubectl commands. Features caching for improved performance and auto-detection of TLS verification requirements.
 
 **Parameters:**
 
 | Parameter          | Short | Required | Description                                                   |
 |--------------------|-------|----------|---------------------------------------------------------------|
-| `--project`        | `-p`  | Yes      | GCP project name                                              |
-| `--cluster`        | `-c`  | Yes      | GKE cluster name                                              |
-| `--zone`           | `-z`  | Yes*     | Cluster zone (for zonal clusters)                             |
-| `--region`         | `-r`  | Yes*     | Cluster region (for regional clusters)                        |
-| `--namespace`      | `-n`  | Yes      | Kubernetes namespace                                          |
-| `--container`      | `-C`  | No       | Specific container name to tail                               |
-| `--all-containers` | `-A`  | No       | Show all containers (creates pane per container)              |
-| `--tail`           | `-t`  | No       | Number of lines to tail (default: 100)                        |
-| `--since`          | `-s`  | No       | Show logs since timestamp (RFC3339 or relative like '1h', '30m') |
-| `--until`          | `-u`  | No       | Show logs until timestamp (RFC3339 format)                    |
-| `--no-follow`      | `-F`  | No       | Don't follow logs (default: follow)                           |
-| `--auto-login`     | `-a`  | No       | Automatically run gcloud auth login                           |
+| `--project`        | `-p`  | No       | GCP project ID (skips project selection)                      |
+| `--cluster`        | `-c`  | No       | GKE cluster name (skips cluster selection)                    |
+| `--zone`           | `-z`  | No       | Cluster zone (required if cluster specified)                  |
+| `--region`         | `-r`  | No       | Cluster region (for regional clusters)                        |
+| `--namespace`      | `-n`  | No       | Kubernetes namespace (skips namespace selection)              |
+| `--interactive`    | `-i`  | No       | Launch interactive exploration mode                           |
+| `--clear-cache`    |       | No       | Clear cached project/cluster data                             |
 | `--verbose`        | `-v`  | No       | Enable verbose output                                         |
+| `--help`           | `-h`  | No       | Show help message                                             |
+
+**Examples:**
+
+```bash
+# Interactive mode - explore all resources with numbered menus
+./gke-discover.sh --interactive
+
+# List all projects (numbered selection)
+./gke-discover.sh
+
+# List clusters in a specific project
+./gke-discover.sh -p my-project
+
+# List namespaces in a specific cluster
+./gke-discover.sh -p my-project -c my-cluster -z us-central1-a
+
+# Generate command templates for a namespace
+./gke-discover.sh -p my-project -c my-cluster -z us-central1-a -n production
+
+# Clear cache and refresh data
+./gke-discover.sh --clear-cache
+```
+
+**Features:**
+
+- **Numbered Selection:** Choose projects, clusters, and namespaces by number instead of copy-pasting
+- **Command Templates:** Generates ready-to-run commands for:
+  - `gke-swagger-launch.sh`
+  - `gke-view-logs.sh`
+  - `gke-restart-status.sh`
+  - `gke-cert-check.sh`
+  - `gke-diagnose-probes.sh`
+  - `gke-diagnose-evictions.sh`
+  - `gke-diagnose-shutdown.sh`
+  - `gke-diagnose-storage.sh`
+  - `kubectl` commands
+- **Smart Caching:** 1-hour cache for projects and clusters (improve performance)
+- **TLS Auto-Detection:** Automatically detects and includes `--insecure-skip-tls-verify` when needed
+- **Interactive Mode:** Menu-driven exploration with resource browsing and filtering
+
+**Interactive Mode Commands:**
+
+- `1` - List all projects
+- `2` - List clusters in current project
+- `3` - List namespaces in current cluster
+- `4` - List pods in current namespace
+- `5` - List services in current namespace
+- `6` - Generate command templates
+- `c` - Clear cache
+- `q` - Quit
+
+---
+
+### gke-view-logs.sh
+
+**Purpose:** Create a tmux split-pane view of pod logs using xpanes for simultaneous monitoring of multiple pods.
+
+**Description:** Uses xpanes to create a split-pane terminal view showing logs from all pods in a namespace. Each pod (or
+ container) gets its own pane for easy parallel monitoring.
+
+**Parameters:**
+
+| Parameter          | Short | Required | Description                                                      |
+|--------------------|-------|----------|------------------------------------------------------------------|
+| `--project`        | `-p`  | Yes      | GCP project name                                                 |
+| `--cluster`        | `-c`  | Yes      | GKE cluster name                                                 |
+| `--zone`           | `-z`  | Yes*     | Cluster zone (for zonal clusters)                                |
+| `--region`         | `-r`  | Yes*     | Cluster region (for regional clusters)                           |
+| `--namespace`      | `-n`  | Yes      | Kubernetes namespace                                             |
+| `--container`      | `-C`  | No       | Specific container name to tail                                  |
+| `--all-containers` | `-A`  | No       | Show all containers (creates pane per container)                 |
+| `--tail`           | `-t`  | No       | Number of lines to tail (default: 100)                           |
+| `--since`          | `-s`  | No       | Show logs since timestamp (RFC3339 or relative like '1h', '30m') |
+| `--until`          | `-u`  | No       | Show logs until timestamp (RFC3339 format)                       |
+| `--no-follow`      | `-F`  | No       | Don't follow logs (default: follow)                              |
+| `--auto-login`     | `-a`  | No       | Automatically run gcloud auth login                              |
+| `--verbose`        | `-v`  | No       | Enable verbose output                                            |
 
 *Either zone or region must be specified, but not both.
 
@@ -152,7 +239,9 @@ Before using these scripts, ensure you have the required tools installed. See [R
 
 **Purpose:** Check pod restart status in GKE clusters.
 
-**Description:** Connects to a GKE cluster and checks for pod restarts in the specified namespace(s). Reports pods with restart counts greater than 0, along with exit codes, restart reasons, and timestamps. Automatically suggests related diagnostic tools when issues are detected.
+**Description:** Connects to a GKE cluster and checks for pod restarts in the specified namespace(s). Reports pods with
+ restart counts greater than 0, along with exit codes, restart reasons, and timestamps. Automatically suggests related
+ diagnostic tools when issues are detected.
 
 **Parameters:**
 
@@ -199,7 +288,8 @@ When high restart counts are detected, this script automatically suggests runnin
 
 **Purpose:** Diagnose liveness, readiness, and startup probe failures.
 
-**Description:** Analyzes probe configurations and failures in GKE clusters. Detects anti-patterns such as using the same endpoint for multiple probe types, and provides detailed recommendations for fixing probe issues.
+**Description:** Analyzes probe configurations and failures in GKE clusters. Detects anti-patterns such as using the same
+ endpoint for multiple probe types, and provides detailed recommendations for fixing probe issues.
 
 **Parameters:**
 
@@ -245,7 +335,8 @@ When high restart counts are detected, this script automatically suggests runnin
 
 **Purpose:** Diagnose ungraceful shutdown issues (SIGTERM/SIGKILL).
 
-**Description:** Analyzes pods that were terminated with SIGTERM (exit code 143) or SIGKILL (exit code 137). Checks grace periods, preStop hooks, and provides recommendations for ensuring graceful shutdowns.
+**Description:** Analyzes pods that were terminated with SIGTERM (exit code 143) or SIGKILL (exit code 137). Checks grace
+ periods, preStop hooks, and provides recommendations for ensuring graceful shutdowns.
 
 **Parameters:**
 
@@ -287,46 +378,69 @@ When high restart counts are detected, this script automatically suggests runnin
 
 ---
 
-### gke-diagnose-evictions.sh
+### gke-diagnose-storage.sh
 
-**Purpose:** Diagnose pod eviction issues.
+**Purpose:** Diagnose storage and disk space issues in GKE clusters.
 
-**Description:** Analyzes pod evictions in GKE clusters, checking for node pressure conditions, resource quotas, and Pod Disruption Budgets (PDBs). Helps identify why pods are being evicted and provides remediation suggestions.
+**Description:** Analyzes PersistentVolumeClaims (PVCs), pod disk usage, node disk pressure, and storage-related issues
+ in GKE clusters. Provides warnings when disk usage exceeds 80% and recommendations for remediation. Particularly useful
+  for diagnosing Elasticsearch and other stateful application storage issues.
 
 **Parameters:**
 
-| Long Form            | Short| Required | Description                           |
-|----------------------|------|-----|--------------------------------------------|
-| `--project`          | `-p` | Yes | GCP project ID                             |
-| `--cluster`          | `-c` | Yes | GKE cluster name                           |
-| `--zone`             | `-z` | Yes | Cluster zone                               |
-| `--namespace`        | `-n` | No  | Specific namespace to check (default: all) |
-| `--all-namespaces`   | `-a` | No  | Check all namespaces explicitly            |
-| `--verbose`          | `-v` | No  | Enable verbose output                      |
-| `--quiet`            | `-q` | No  | Quiet mode (minimal output)                |
-| `--auto-login`       | `-l` | No  | Auto-login to gcloud if not authenticated  |
-| `--help`             | `-h` | No  | Show help message                          |
+| Parameter          | Short | Required | Description                                                   |
+|--------------------|-------|----------|---------------------------------------------------------------|
+| `--project`        | `-p`  | Yes      | GCP project ID                                                |
+| `--cluster`        | `-c`  | Yes      | GKE cluster name                                              |
+| `--zone`           | `-z`  | Yes*     | Cluster zone (for zonal clusters)                             |
+| `--region`         | `-r`  | Yes*     | Cluster region (for regional clusters)                        |
+| `--namespace`      | `-n`  | No       | Specific namespace to check (default: all namespaces)         |
+| `--pod`            | `-d`  | No       | Specific pod to diagnose (requires --namespace)               |
+| `--all-namespaces` | `-a`  | No       | Check all namespaces explicitly                               |
+| `--verbose`        | `-v`  | No       | Enable verbose output                                         |
+| `--quiet`          | `-q`  | No       | Quiet mode (minimal output)                                   |
+| `--auto-login`     | `-l`  | No       | Auto-login to gcloud if not authenticated                     |
+| `--help`           | `-h`  | No       | Show help message                                             |
+
+*Either zone or region must be specified, but not both.
 
 **Examples:**
 
 ```bash
-# Check evictions in all namespaces
-./gke-diagnose-evictions.sh -p my-project -c my-cluster -z us-east4-a
+# Check storage in all namespaces
+./gke-diagnose-storage.sh -p my-project -c my-cluster -z us-east4-a
 
-# Check evictions in a specific namespace
-./gke-diagnose-evictions.sh -p my-project -c my-cluster -z us-east4-a -n production
+# Check storage in a specific namespace
+./gke-diagnose-storage.sh -p my-project -c my-cluster -r us-east4 -n elastic
+
+# Detailed diagnosis of a specific pod
+./gke-diagnose-storage.sh -p my-project -c my-cluster -z us-east4-a -n elastic -d elasticsearch-master-0
 
 # Check with verbose output
-./gke-diagnose-evictions.sh -p my-project -c my-cluster -z us-east4-a -a -v
+./gke-diagnose-storage.sh -p my-project -c my-cluster -z us-east4-a -a -v
 ```
 
 **What It Detects:**
 
-- Pod evictions due to node pressure
-- Resource quota violations
-- Pod Disruption Budget issues
-- Memory/CPU pressure
-- Disk pressure
+- PVC capacity and usage
+- Pod disk usage (via `df -h` in containers)
+- Node disk pressure conditions
+- High disk usage warnings (≥80%)
+- Pending pods due to storage issues
+- Storage class configurations
+
+**Critical Warnings:**
+
+- **Red Flag (≥80% usage):** Displays CRITICAL warning with affected pods
+- **Actionable recommendations:** Suggests deleting old data, increasing PVC size, or reviewing retention policies
+- **Context-aware:** Notes that Elasticsearch refuses allocations at 85% (low watermark)
+
+**Use Cases:**
+
+- Troubleshooting Elasticsearch cluster formation failures
+- Investigating pod evictions due to disk pressure
+- Planning storage capacity upgrades
+- Monitoring stateful application storage health
 
 ---
 
@@ -334,7 +448,9 @@ When high restart counts are detected, this script automatically suggests runnin
 
 **Purpose:** Check SSL/TLS certificates stored in GKE secrets.
 
-**Description:** Connects to a GKE cluster and examines TLS certificates stored in Kubernetes secrets. Displays certificate information including expiration dates, subject details, and issuer information. Can check a specific secret or list all certificates in a namespace.
+**Description:** Connects to a GKE cluster and examines TLS certificates stored in Kubernetes secrets. Displays
+ certificate information including expiration dates, subject details, and issuer information. Can check a specific secret
+ or list all certificates in a namespace.
 
 **Parameters:**
 
@@ -386,22 +502,30 @@ When high restart counts are detected, this script automatically suggests runnin
 
 **Purpose:** Launch Swagger UI via GKE port forwarding.
 
-**Description:** Sets up port forwarding to a Kubernetes service and opens Swagger UI in a browser. Simplifies access to API documentation hosted in GKE clusters.
+**Description:** Sets up port forwarding to a Kubernetes service running an application that supports OpenAPI / Swagger
+ UI, and opens the Swagger UI API documentation in a browser window. This simplifies access to API documentation privately
+ hosted in GKE clusters for internal developers. Includes service endpoint validation and connection verification to ensure
+ successful port forwarding.
+
+**Note**: This script should <ins>not</ins> be used as means for sharing API documentation with external teams, as it
+ would require you to provision environment access to your API consumers.
 
 **Parameters:**
 
-| Parameter        | Short | Required | Description                                          |
-|------------------|-------|----------|------------------------------------------------------|
-| `--project`      | `-p`  | Yes      | GCP project ID                                       |
-| `--cluster`      | `-c`  | Yes      | GKE cluster name                                     |
-| `--zone`         | `-z`  | Yes*     | Zone for zonal cluster (use `--zone` or `--region`)  |
+| Parameter        | Short | Required | Description                                              |
+|------------------|-------|----------|----------------------------------------------------------|
+| `--project`      | `-p`  | Yes      | GCP project ID                                           |
+| `--cluster`      | `-c`  | Yes      | GKE cluster name                                         |
+| `--zone`         | `-z`  | Yes*     | Zone for zonal cluster (use `--zone` or `--region`)      |
 | `--region`       | `-r`  | Yes*     | Region for regional cluster (use `--zone` or `--region`) |
-| `--service`      | `-s`  | Yes      | Kubernetes service name                              |
-| `--namespace`    | `-n`  | Yes      | Kubernetes namespace                                 |
-| `--local-port`   | `-l`  | No       | Local port for forwarding (default: 8080)            |
-| `--remote-port`  | `-R`  | No       | Remote port for forwarding (default: 8080)           |
-| `--swagger-path` |       | No       | Path to Swagger UI (default: /swagger-ui/index.html) |
-| `--http`         |       | No       | Use HTTP instead of HTTPS (default: HTTPS)           |
+| `--service`      | `-s`  | Yes      | Kubernetes service name                                  |
+| `--namespace`    | `-n`  | Yes      | Kubernetes namespace                                     |
+| `--local-port`   | `-l`  | No       | Local port for forwarding (default: 8080)                |
+| `--remote-port`  | `-R`  | No       | Remote port for forwarding (default: 8080)               |
+| `--swagger-path` |       | No       | Path to Swagger UI (default: /swagger-ui/index.html)     |
+| `--http`         |       | No       | Use HTTP instead of HTTPS (default: HTTPS)               |
+
+*Either zone or region must be specified, but not both.
 
 **Examples:**
 
@@ -428,8 +552,54 @@ When high restart counts are detected, this script automatically suggests runnin
 1. Authenticates with Google Cloud
 2. Sets the active GCP project
 3. Gets cluster credentials and sets kubectl context
-4. Sets up port forwarding to the specified service
-5. Opens Swagger UI in the default browser
+4. Validates service endpoints and availability
+5. Sets up port forwarding to the specified service
+6. Verifies the port forward connection
+7. Opens Swagger UI in the default browser
+
+---
+
+### gke-diagnose-evictions.sh
+
+**Purpose:** Diagnose pod eviction issues.
+
+**Description:** Analyzes pod evictions in GKE clusters, checking for node pressure conditions, resource quotas, and Pod
+Disruption Budgets (PDBs). Helps identify why pods are being evicted and provides remediation suggestions.
+
+**Parameters:**
+
+| Long Form            | Short| Required | Description                                |
+|----------------------|------|----------|--------------------------------------------|
+| `--project`          | `-p` | Yes      | GCP project ID                             |
+| `--cluster`          | `-c` | Yes      | GKE cluster name                           |
+| `--zone`             | `-z` | Yes      | Cluster zone                               |
+| `--namespace`        | `-n` | No       | Specific namespace to check (default: all) |
+| `--all-namespaces`   | `-a` | No       | Check all namespaces explicitly            |
+| `--verbose`          | `-v` | No       | Enable verbose output                      |
+| `--quiet`            | `-q` | No       | Quiet mode (minimal output)                |
+| `--auto-login`       | `-l` | No       | Auto-login to gcloud if not authenticated  |
+| `--help`             | `-h` | No       | Show help message                          |
+
+**Examples:**
+
+```bash
+# Check evictions in all namespaces
+./gke-diagnose-evictions.sh -p my-project -c my-cluster -z us-east4-a
+
+# Check evictions in a specific namespace
+./gke-diagnose-evictions.sh -p my-project -c my-cluster -z us-east4-a -n production
+
+# Check with verbose output
+./gke-diagnose-evictions.sh -p my-project -c my-cluster -z us-east4-a -a -v
+```
+
+**What It Detects:**
+
+- Pod evictions due to node pressure
+- Resource quota violations
+- Pod Disruption Budget issues
+- Memory/CPU pressure
+- Disk pressure
 
 ---
 

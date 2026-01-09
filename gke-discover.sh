@@ -245,6 +245,27 @@ list_clusters() {
     echo -e "\n${GREEN}Total: $count cluster(s)${NC}"
 }
 
+# Function to detect if insecure-skip-tls-verify is needed
+check_tls_verify_needed() {
+    # Try kubectl without the flag first
+    if kubectl cluster-info >/dev/null 2>&1; then
+        # Works without the flag
+        NEEDS_INSECURE_SKIP_TLS="false"
+        return 0
+    fi
+    
+    # Try with the flag
+    if kubectl cluster-info --insecure-skip-tls-verify=true >/dev/null 2>&1; then
+        # Works with the flag, so it's needed
+        NEEDS_INSECURE_SKIP_TLS="true"
+        return 0
+    fi
+    
+    # Neither works, default to requiring the flag
+    NEEDS_INSECURE_SKIP_TLS="true"
+    return 1
+}
+
 # Function to get cluster credentials
 get_credentials() {
     local proj="$1"
@@ -267,6 +288,17 @@ get_credentials() {
         return 1
     fi
     echo -e "${GREEN}Cluster credentials configured${NC}"
+    
+    # Check if insecure-skip-tls-verify is needed
+    echo -e "${YELLOW}Checking TLS configuration...${NC}"
+    if check_tls_verify_needed; then
+        if [[ "$NEEDS_INSECURE_SKIP_TLS" == "true" ]]; then
+            echo -e "${YELLOW}Note: Cluster requires --insecure-skip-tls-verify flag${NC}"
+        else
+            echo -e "${GREEN}TLS verification enabled${NC}"
+        fi
+    fi
+    
     return 0
 }
 
@@ -519,6 +551,7 @@ generate_command_template() {
     local location_type=""
     local zone_param=""
     local region_param=""
+    local insecure_flag=""
     
     if [[ -n "$PROJECT" ]] && [[ -n "$CLUSTER" ]]; then
         local cluster_info=$(gcloud container clusters list --project="$PROJECT" --filter="name=$CLUSTER" --format="value(location,locationType)" 2>/dev/null)
@@ -529,6 +562,11 @@ generate_command_template() {
             zone_param="--zone $location"
         else
             region_param="--region $location"
+        fi
+        
+        # Add insecure flag if needed
+        if [[ "${NEEDS_INSECURE_SKIP_TLS:-true}" == "true" ]]; then
+            insecure_flag="--insecure-skip-tls-verify"
         fi
     fi
     
@@ -542,6 +580,10 @@ generate_command_template() {
         fi
     else
         echo "./gke-swagger-launch.sh --project PROJECT_ID --cluster CLUSTER_NAME --zone ZONE --service SERVICE_NAME --namespace NAMESPACE"
+    fi
+    
+    if [[ -n "$insecure_flag" ]]; then
+        echo -e "${YELLOW}Note: Add $insecure_flag if needed for kubectl commands${NC}"
     fi
     
     echo ""
@@ -631,11 +673,20 @@ generate_command_template() {
     if [[ -n "$PROJECT" ]] && [[ -n "$CLUSTER" ]]; then
         echo -e "${GREEN}# Already configured for project: $PROJECT, cluster: $CLUSTER${NC}"
     fi
-    echo "kubectl get pods -n NAMESPACE"
-    echo "kubectl get services -n NAMESPACE"
-    echo "kubectl describe pod POD_NAME -n NAMESPACE"
-    echo "kubectl logs POD_NAME -n NAMESPACE"
-    echo "kubectl port-forward service/SERVICE_NAME -n NAMESPACE LOCAL_PORT:REMOTE_PORT"
+    
+    if [[ -n "$insecure_flag" ]]; then
+        echo "kubectl get pods -n NAMESPACE $insecure_flag"
+        echo "kubectl get services -n NAMESPACE $insecure_flag"
+        echo "kubectl describe pod POD_NAME -n NAMESPACE $insecure_flag"
+        echo "kubectl logs POD_NAME -n NAMESPACE $insecure_flag"
+        echo "kubectl port-forward service/SERVICE_NAME -n NAMESPACE LOCAL_PORT:REMOTE_PORT $insecure_flag"
+    else
+        echo "kubectl get pods -n NAMESPACE"
+        echo "kubectl get services -n NAMESPACE"
+        echo "kubectl describe pod POD_NAME -n NAMESPACE"
+        echo "kubectl logs POD_NAME -n NAMESPACE"
+        echo "kubectl port-forward service/SERVICE_NAME -n NAMESPACE LOCAL_PORT:REMOTE_PORT"
+    fi
 }
 
 # Main execution
