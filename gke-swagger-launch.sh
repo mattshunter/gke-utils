@@ -220,27 +220,22 @@ check_port() {
 
 # Function to check if service endpoint is ready
 check_service_endpoint() {
-    echo -e "${YELLOW}Checking if service has ready endpoints...${NC}"
+    echo -e "${YELLOW}Checking if service has endpoints...${NC}"
     
-    local max_attempts=30
-    local attempt=1
+    # Strip svc/ or service/ prefix if present (port-forward accepts it, but endpoints query doesn't)
+    local service_name="${SERVICE#svc/}"
+    service_name="${service_name#service/}"
     
-    while [ $attempt -le $max_attempts ]; do
-        local endpoints=$(kubectl get endpoints "$SERVICE" -n "$NAMESPACE" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
-        
-        if [[ -n "$endpoints" ]]; then
-            echo -e "${GREEN}Service has ready endpoints${NC}"
-            return 0
-        fi
-        
-        echo -e "${YELLOW}Waiting for service endpoints to be ready (attempt $attempt/$max_attempts)...${NC}"
-        sleep 2
-        ((attempt++))
-    done
+    # Check for ready endpoints (informational only - port-forward will be the real validation)
+    local endpoints=$(kubectl get endpoints "$service_name" -n "$NAMESPACE" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
     
-    echo -e "${RED}Warning: Service endpoints not ready after $max_attempts attempts${NC}"
-    echo -e "${YELLOW}Proceeding anyway, but connection may fail...${NC}"
-    return 1
+    if [[ -n "$endpoints" ]]; then
+        echo -e "${GREEN}Service has ready endpoints${NC}"
+    else
+        echo -e "${YELLOW}Endpoint status unknown (port-forward will validate connection)${NC}"
+    fi
+    
+    return 0
 }
 
 # Function to validate port forwarding connection
@@ -279,11 +274,17 @@ start_port_forward() {
     echo -e "Namespace: ${GREEN}$NAMESPACE${NC}"
     echo -e "Port mapping: ${GREEN}$LOCAL_PORT:$REMOTE_PORT${NC}"
     
-    # Check service endpoints before attempting port forward
-    check_service_endpoint
+    # Check service endpoints before attempting port forward (don't exit on failure)
+    check_service_endpoint || true
+    
+    # Ensure service has svc/ prefix for port-forward (more reliable)
+    local pf_service="$SERVICE"
+    if [[ ! "$pf_service" =~ ^(svc|service)/ ]]; then
+        pf_service="svc/$pf_service"
+    fi
     
     # Start port forwarding in background
-    kubectl port-forward "$SERVICE" -n "$NAMESPACE" "$LOCAL_PORT:$REMOTE_PORT" --insecure-skip-tls-verify &
+    kubectl port-forward "$pf_service" -n "$NAMESPACE" "$LOCAL_PORT:$REMOTE_PORT" --insecure-skip-tls-verify &
     PORT_FORWARD_PID=$!
     
     # Wait a moment for port forwarding to establish

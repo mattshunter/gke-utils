@@ -353,7 +353,7 @@ main() {
         pane_count=$pod_count
         
         # Build command for specific container
-        local logs_cmd="kubectl logs {} --insecure-skip-tls-verify=true -n $NAMESPACE -c $CONTAINER --tail=$TAIL_LINES"
+        local logs_cmd="kubecolor logs {} --insecure-skip-tls-verify=true -n $NAMESPACE -c $CONTAINER --tail=$TAIL_LINES"
         if [[ -n "$SINCE_TIME" ]]; then
             logs_cmd="$logs_cmd --since-time=$SINCE_TIME"
         fi
@@ -376,7 +376,7 @@ main() {
         done
         
         # Build command that extracts pod and container from target
-        local logs_cmd='kubectl logs $(echo {} | cut -d/ -f1) --insecure-skip-tls-verify=true -n '"$NAMESPACE"' -c $(echo {} | cut -d/ -f2) --tail='"$TAIL_LINES"
+        local logs_cmd='kubecolor logs $(echo {} | cut -d/ -f1) --insecure-skip-tls-verify=true -n '"$NAMESPACE"' -c $(echo {} | cut -d/ -f2) --tail='"$TAIL_LINES"
         if [[ -n "$SINCE_TIME" ]]; then
             logs_cmd="$logs_cmd --since-time=$SINCE_TIME"
         fi
@@ -395,7 +395,7 @@ main() {
         pane_count=$pod_count
         
         # Build command without container specification (uses first container)
-        local logs_cmd="kubectl logs {} --insecure-skip-tls-verify=true -n $NAMESPACE --tail=$TAIL_LINES"
+        local logs_cmd="kubecolor logs {} --insecure-skip-tls-verify=true -n $NAMESPACE --tail=$TAIL_LINES"
         if [[ -n "$SINCE_TIME" ]]; then
             logs_cmd="$logs_cmd --since-time=$SINCE_TIME"
         fi
