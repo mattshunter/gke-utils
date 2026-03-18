@@ -69,6 +69,7 @@ Required for:
 - `gke-cert-check.sh` (with `--verify` flag for deployment discovery)
 - `gke-diagnose-probes.sh` (for parsing JSON output)
 - `gke-diagnose-shutdown.sh` (for analyzing pod configurations)
+- `gcp-diagnose-load-balancer.sh` (for forwarding-rule, URL map, and certificate parsing)
 
 ```bash
 # Install on macOS
@@ -82,6 +83,23 @@ sudo yum install jq
 ```
 
 **Note**: Some scripts will show a warning or error if `jq` is not installed when required.
+
+### dig (DNS utilities)
+Recommended for:
+- `gcp-diagnose-load-balancer.sh` hostname-to-IP validation
+
+```bash
+# Install on macOS
+brew install bind
+
+# Install on Linux (Debian/Ubuntu)
+sudo apt-get install dnsutils
+
+# Install on Linux (RHEL/CentOS)
+sudo yum install bind-utils
+```
+
+**Note**: If `dig` is not installed, DNS checks are skipped with a warning.
 
 ### Node.js and npm
 Required for installing `tty-table` (optional enhancement for `gke-restart-status.sh`).

@@ -15,6 +15,7 @@ A collection of scripts for managing and diagnosing Google Kubernetes Engine (GK
   - [gke-diagnose-evictions.sh](#gke-diagnose-evictionssh)
   - [gke-diagnose-storage.sh](#gke-diagnose-storagesh)
   - [gke-diagnose-elastic.sh](#gke-diagnose-elasticsh)
+  - [gcp-diagnose-load-balancer.sh](#gcp-diagnose-load-balancersh)
   - [gke-cert-check.sh](#gke-cert-checksh)
   - [gke-swagger-launch.sh](#gke-swagger-launchsh)
 - [Installation](#installation)
@@ -563,6 +564,71 @@ With `--verbose`, you'll see complete log entries with all JSON fields including
 - **Unassigned Shards:** Often caused by disk space, replica count mismatches, or node failures
 - **GeoIP Database Errors:** Common during cluster initialization, usually resolve automatically
 - **Heap Pressure:** Indicates need to adjust JVM settings or add nodes
+
+---
+
+### gcp-diagnose-load-balancer.sh
+
+**Purpose:** Diagnose Google Cloud Load Balancer frontends, certificates, and backend wiring from a hostname and/or IP address.
+
+**Description:** Inspects Compute Engine forwarding rules and traces them through target proxies, URL maps, backend services, and SSL certificates.
+Helps identify frontend type, supported protocols, certificate management model (Google-managed vs self-managed), SAN/domain coverage, and common misconfigurations.
+
+**Parameters:**
+
+| Parameter             | Short | Required | Description                                                       |
+|-----------------------|-------|----------|-------------------------------------------------------------------|
+| `--project`           | `-p`  | Yes      | GCP project ID                                                    |
+| `--hostname`          | `-H`  | No*      | Hostname to analyze (for URL map host rules and cert validation) |
+| `--ip`                | `-i`  | No*      | Frontend IP address to analyze                                    |
+| `--region`            | `-r`  | No       | Restrict checks to a specific region                              |
+| `--list-all`          |       | No       | Analyze all forwarding rules in the project                       |
+| `--verbose`           | `-v`  | No       | Verbose output                                                    |
+| `--quiet`             | `-q`  | No       | Quiet mode                                                        |
+| `--auto-login`        | `-l`  | No       | Auto-login with `gcloud auth login` if needed                     |
+| `--help`              | `-h`  | No       | Show help message                                                 |
+
+*Provide at least one of `--hostname` or `--ip`, unless using `--list-all`.
+
+**Examples:**
+
+```bash
+# Diagnose by hostname
+./gcp-diagnose-load-balancer.sh -p my-project -H api.example.com
+
+# Diagnose by IP
+./gcp-diagnose-load-balancer.sh -p my-project -i 34.123.45.67
+
+# Diagnose by both hostname and IP
+./gcp-diagnose-load-balancer.sh -p my-project -H api.example.com -i 34.123.45.67
+
+# Analyze all forwarding rules in a region
+./gcp-diagnose-load-balancer.sh -p my-project --list-all -r us-central1
+```
+
+**What It Checks:**
+
+1. **Frontend Identification** - Forwarding rule details, load balancing scheme, network tier, target type
+2. **Protocol Verification** - IP protocol and inferred frontend protocols (HTTP/HTTPS/SSL/TCP/gRPC)
+3. **Certificate Diagnostics** - Managed status, expiry, SAN/domain coverage for requested hostname
+4. **Certificate Map Deep Inspection** - Certificate Manager map entries, hostname pattern matching, mapped cert state/SANs
+5. **CA Trust and Chain Analysis** - Live TLS trust verification code, certificate chain continuity, issuer/subject and CA flags
+6. **Domain/Host Mapping** - URL map host rule matching and optional DNS A-record checks
+7. **Backend Wiring** - URL map backend services, backend service protocol/timeout/session affinity/logging
+8. **Health Check Presence** - Lists configured health checks for each backend service
+
+**Output Legend:**
+
+- `✅` check completed successfully with no issue for that item
+- `⚠️` warning condition detected (non-critical)
+- `❗️` critical certificate finding detected (high priority)
+
+**Use Cases:**
+
+- Troubleshooting hostname-to-load-balancer routing mismatches
+- Investigating certificate trust and domain coverage issues
+- Verifying frontend listener protocol expectations
+- Confirming backend service and health-check configuration
 
 ---
 
